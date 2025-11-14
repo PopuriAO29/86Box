@@ -54,6 +54,7 @@
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/fdd.h>
+#include <86box/fdd_audio.h>
 #include <86box/fdc_ext.h>
 #include <86box/gameport.h>
 #include <86box/keyboard.h>
@@ -338,6 +339,7 @@ load_machine(void)
         { .old = "infinia7200", .new = "tc430hx", .new_bios = "infinia7200" },
         { .old = "dellvenus", .new = "vs440fx", .new_bios = "dellvenus" },
         { .old = "gw2kvenus", .new = "vs440fx", .new_bios = "gw2kvenus" },
+        { .old = "lgibmx7g", .new = "ms6119", .new_bios = "lgibmx7g" },
         { 0 }
     };
 
@@ -568,6 +570,7 @@ load_input_devices(void)
 {
     ini_section_t cat = ini_find_section(config, "Input devices");
     char          temp[512];
+    char          tmp2[32];
     char         *p;
 
     p = ini_section_get_string(cat, "keyboard_type", NULL);
@@ -638,25 +641,34 @@ load_input_devices(void)
     } else
         joystick_type[joy_insn] = JS_TYPE_NONE;
 
+    uint8_t gp = 0;
+
     for (int js = 0; js < joystick_get_max_joysticks(joystick_type[joy_insn]); js++) {
         sprintf(temp, "joystick_%i_nr", js);
-        joystick_state[0][js].plat_joystick_nr = ini_section_get_int(cat, temp, 0);
+        joystick_state[gp][js].plat_joystick_nr = ini_section_get_int(cat, temp, 0);
 
-        if (joystick_state[0][js].plat_joystick_nr) {
+        if (joystick_state[gp][js].plat_joystick_nr) {
+            // --- Load Axis Mappings ---
             for (int axis_nr = 0; axis_nr < joystick_get_axis_count(joystick_type[joy_insn]); axis_nr++) {
                 sprintf(temp, "joystick_%i_axis_%i", js, axis_nr);
-                joystick_state[0][js].axis_mapping[axis_nr] = ini_section_get_int(cat, temp, axis_nr);
+                joystick_state[gp][js].axis_mapping[axis_nr] = ini_section_get_int(cat, temp, axis_nr);
             }
+
+            // --- Load Button Mappings ---
             for (int button_nr = 0; button_nr < joystick_get_button_count(joystick_type[joy_insn]); button_nr++) {
                 sprintf(temp, "joystick_%i_button_%i", js, button_nr);
-                joystick_state[0][js].button_mapping[button_nr] = ini_section_get_int(cat, temp, button_nr);
+                joystick_state[gp][js].button_mapping[button_nr] = ini_section_get_int(cat, temp, button_nr);
             }
+
+            // --- Load POV (Hat Switch) Mappings ---
             for (int pov_nr = 0; pov_nr < joystick_get_pov_count(joystick_type[joy_insn]); pov_nr++) {
                 sprintf(temp, "joystick_%i_pov_%i", js, pov_nr);
-                p                                   = ini_section_get_string(cat, temp, "0, 0");
-                joystick_state[0][js].pov_mapping[pov_nr][0] = joystick_state[0][js].pov_mapping[pov_nr][1] = 0;
-                sscanf(p, "%i, %i", &joystick_state[0][js].pov_mapping[pov_nr][0],
-                       &joystick_state[0][js].pov_mapping[pov_nr][1]);
+                sprintf(tmp2, "%i, %i", 0, 0);
+                p                                             = ini_section_get_string(cat, temp, tmp2);
+                joystick_state[gp][js].pov_mapping[pov_nr][0] = 0;
+				joystick_state[gp][js].pov_mapping[pov_nr][1] = 0;
+                sscanf(p, "%i, %i", &joystick_state[gp][js].pov_mapping[pov_nr][0],
+                       &joystick_state[gp][js].pov_mapping[pov_nr][1]);
             }
         }
     }
@@ -1379,10 +1391,15 @@ load_floppy_and_cdrom_drives(void)
     int           c;
     int           d;
     int           count = cdrom_get_type_count();
+    
+#ifndef DISABLE_FDD_AUDIO
+    fdd_audio_load_profiles();
+#endif
 
     memset(temp, 0x00, sizeof(temp));
     for (c = 0; c < FDD_NUM; c++) {
         sprintf(temp, "fdd_%02i_type", c + 1);
+
         p = ini_section_get_string(cat, temp, (c < 2) ? "525_2dd" : "none");
         if (!strcmp(p, "525_2hd_ps2"))
             d = fdd_get_from_internal_name("525_2hd");
@@ -1437,14 +1454,14 @@ load_floppy_and_cdrom_drives(void)
             sprintf(temp, "fdd_%02i_check_bpb", c + 1);
             ini_section_delete_var(cat, temp);
         }
-        sprintf(temp, "fdd_%02i_audio", c + 1);
-        int def_prof = FDD_AUDIO_PROFILE_NONE;
-        int prof     = ini_section_get_int(cat, temp, def_prof);
-        if (prof < 0 || prof >= FDD_AUDIO_PROFILE_MAX)
-            prof = def_prof;
+        sprintf(temp, "fdd_%02i_audio", c + 1);        
+#ifndef DISABLE_FDD_AUDIO
+        p    = ini_section_get_string(cat, temp, "none");
+        int prof = fdd_audio_get_profile_by_internal_name(p);
         fdd_set_audio_profile(c, prof);
-        if (prof == def_prof)
-            ini_section_delete_var(cat, temp);
+#else
+        fdd_set_audio_profile(c, 0);
+#endif        
 
         for (int i = 0; i < MAX_PREV_IMAGES; i++) {
             fdd_image_history[c][i] = (char *) calloc((MAX_IMAGE_PATH_LEN + 1) << 1, sizeof(char));
@@ -1485,7 +1502,7 @@ load_floppy_and_cdrom_drives(void)
         sprintf(temp, "cdrom_%02i_type", c + 1);
         p = ini_section_get_string(cat, temp, cdrom[c].bus_type == CDROM_BUS_MKE ? "cr563" : "86cd");
         /* TODO: Configuration migration, remove when no longer needed. */
-        int cdrom_type = cdrom_get_from_internal_name(p);
+        int cdrom_type = cdrom_get_from_internal_name(!strcmp(p, "goldstar") ? "goldstar_r560b" : p);
         if (cdrom_type == -1) {
             cdrom_type = cdrom_get_from_name(p);
             if (cdrom_type == -1)
@@ -2694,7 +2711,7 @@ save_input_devices(void)
 {
     ini_section_t cat = ini_find_or_create_section(config, "Input devices");
     char          temp[512];
-    char          tmp2[512];
+    char          tmp2[32];
 
     ini_section_set_string(cat, "keyboard_type", keyboard_get_internal_name(keyboard_type));
 
@@ -2705,53 +2722,64 @@ save_input_devices(void)
         ini_section_delete_var(cat, "joystick_type");
 
         for (int js = 0; js < MAX_PLAT_JOYSTICKS; js++) {
-            sprintf(tmp2, "joystick_%i_nr", js);
-            ini_section_delete_var(cat, tmp2);
+            sprintf(temp, "joystick_%i_nr", js);
+            ini_section_delete_var(cat, temp);
 
+            // --- Save Axis Mappings ---
             for (int axis_nr = 0; axis_nr < MAX_JOY_AXES; axis_nr++) {
-                sprintf(tmp2, "joystick_%i_axis_%i", js, axis_nr);
-                ini_section_delete_var(cat, tmp2);
+                sprintf(temp, "joystick_%i_axis_%i", js, axis_nr);
+                ini_section_delete_var(cat, temp);
             }
+
+            // --- Save Button Mappings ---
             for (int button_nr = 0; button_nr < MAX_JOY_BUTTONS; button_nr++) {
-                sprintf(tmp2, "joystick_%i_button_%i", js, button_nr);
-                ini_section_delete_var(cat, tmp2);
+                sprintf(temp, "joystick_%i_button_%i", js, button_nr);
+                ini_section_delete_var(cat, temp);
             }
+
+            // --- Save POV (Hat Switch) Mappings ---
             for (int pov_nr = 0; pov_nr < MAX_JOY_POVS; pov_nr++) {
-                sprintf(tmp2, "joystick_%i_pov_%i", js, pov_nr);
-                ini_section_delete_var(cat, tmp2);
+                sprintf(temp, "joystick_%i_pov_%i", js, pov_nr);
+                ini_section_delete_var(cat, temp);
             }
         }
     } else {
+        uint8_t gp = 0;
+
         ini_section_set_string(cat, "joystick_type", joystick_get_internal_name(joystick_type[joy_insn]));
 
         for (int js = 0; js < joystick_get_max_joysticks(joystick_type[joy_insn]); js++) {
-            sprintf(tmp2, "joystick_%i_nr", js);
-            ini_section_set_int(cat, tmp2, joystick_state[0][js].plat_joystick_nr);
+            sprintf(temp, "joystick_%i_nr", js);
+            ini_section_set_int(cat, temp, joystick_state[gp][js].plat_joystick_nr);
 
-            if (joystick_state[0][js].plat_joystick_nr) {
+            if (joystick_state[gp][js].plat_joystick_nr) {
+                // --- Save Axis Mappings ---
                 for (int axis_nr = 0; axis_nr < joystick_get_axis_count(joystick_type[joy_insn]); axis_nr++) {
-                    sprintf(tmp2, "joystick_%i_axis_%i", js, axis_nr);
-                    ini_section_set_int(cat, tmp2, joystick_state[0][js].axis_mapping[axis_nr]);
+                    sprintf(temp, "joystick_%i_axis_%i", js, axis_nr);
+                    ini_section_set_int(cat, temp, joystick_state[gp][js].axis_mapping[axis_nr]);
                 }
+
+                // --- Save Button Mappings ---
                 for (int button_nr = 0; button_nr < joystick_get_button_count(joystick_type[joy_insn]); button_nr++) {
-                    sprintf(tmp2, "joystick_%i_button_%i", js, button_nr);
-                    ini_section_set_int(cat, tmp2, joystick_state[0][js].button_mapping[button_nr]);
+                    sprintf(temp, "joystick_%i_button_%i", js, button_nr);
+                    ini_section_set_int(cat, temp, joystick_state[gp][js].button_mapping[button_nr]);
                 }
+
+                // --- Save POV (Hat Switch) Mappings ---
                 for (int pov_nr = 0; pov_nr < joystick_get_pov_count(joystick_type[joy_insn]); pov_nr++) {
-                    sprintf(tmp2, "joystick_%i_pov_%i", js, pov_nr);
-                    sprintf(temp, "%i, %i", joystick_state[0][js].pov_mapping[pov_nr][0],
-                            joystick_state[0][js].pov_mapping[pov_nr][1]);
-                    ini_section_set_string(cat, tmp2, temp);
+                    sprintf(temp, "joystick_%i_pov_%i", js, pov_nr);
+                    sprintf(tmp2, "%i, %i", joystick_state[gp][js].pov_mapping[pov_nr][0],
+                                            joystick_state[gp][js].pov_mapping[pov_nr][1]);
+                    ini_section_set_string(cat, temp, tmp2);
                 }
             }
         }
     }
 
-    if (tablet_tool_type != 1) {
+    if (tablet_tool_type != 1)
         ini_section_set_int(cat, "tablet_tool_type", tablet_tool_type);
-    } else {
+    else
         ini_section_delete_var(cat, "tablet_tool_type");
-    }
 
     ini_delete_section_if_empty(config, cat);
 }
@@ -3433,12 +3461,17 @@ save_floppy_and_cdrom_drives(void)
         }
 
         sprintf(temp, "fdd_%02i_audio", c + 1);
-        int def_prof = FDD_AUDIO_PROFILE_NONE;
-        int prof = fdd_get_audio_profile(c);
-        if (prof == def_prof)
+#ifndef DISABLE_FDD_AUDIO
+        int         prof          = fdd_get_audio_profile(c);
+        const char *internal_name = fdd_audio_get_profile_internal_name(prof);
+        if (internal_name && strcmp(internal_name, "none") != 0) {
+            ini_section_set_string(cat, temp, internal_name);
+        } else {
             ini_section_delete_var(cat, temp);
-        else
-            ini_section_set_int(cat, temp, prof);
+        }
+#else
+        ini_section_delete_var(cat, temp);
+#endif
     }
 
     for (c = 0; c < CDROM_NUM; c++) {

@@ -452,9 +452,7 @@ tulip_copy_rx_bytes(TULIPState *s, struct tulip_descriptor *desc)
 static bool
 tulip_filter_address(TULIPState *s, const uint8_t *addr)
 {
-#ifdef BLOCK_BROADCAST
     static const char broadcast[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-#endif
     bool              ret         = false;
 
     for (uint8_t i = 0; i < 16 && ret == false; i++) {
@@ -463,15 +461,9 @@ tulip_filter_address(TULIPState *s, const uint8_t *addr)
         }
     }
 
-/*
-   Do not block broadcast packets - needed for connections to the guest
-   to succeed when using SLiRP.
- */
-#ifdef BLOCK_BROADCAST
     if (!memcmp(addr, broadcast, ETH_ALEN)) {
         return true;
     }
-#endif
 
     if (s->csr[6] & (CSR6_PR | CSR6_RA)) {
         /* Promiscuous mode enabled */
@@ -910,6 +902,7 @@ tulip_reset(void *priv)
         s->subsys_id                = eeprom_data[1];
         s->subsys_ven_id            = eeprom_data[0];
     }
+    s->nic->byte_period         = NET_PERIOD_10M;
 }
 
 static void
@@ -966,6 +959,13 @@ tulip_write(uint32_t addr, uint32_t data, void *opaque)
             } else {
                 tulip_update_ts(s, CSR5_TS_STOPPED);
                 s->csr[5] |= CSR5_TPS;
+            }
+
+            if (s->device_info->local < 3) {
+                if ((s->csr[6] & 0x00440000) && ((s->csr[6] & 0x00440000) != 0x00440000))
+                    s->nic->byte_period = NET_PERIOD_100M;
+                else
+                    s->nic->byte_period = NET_PERIOD_10M;
             }
             break;
 
