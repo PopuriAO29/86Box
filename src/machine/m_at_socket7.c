@@ -143,6 +143,77 @@ machine_at_p65up5_cp55t2d_init(const machine_t *model)
     return ret;
 }
 
+static void
+machine_at_rubyusb_gpio_init(void)
+{
+    uint32_t gpio = 0xffffe3ff;
+
+    /* Register 0x0079: */
+    /* Bit 7: 0 = Clear password, 1 = Keep password. */
+    /* Bit 6: 0 = NVRAM cleared by jumper, 1 = NVRAM normal. */
+    /* Bit 5: 0 = CMOS Setup disabled, 1 = CMOS Setup enabled. */
+    /* Bit 4: External CPU clock (Switch 8). */
+    /* Bit 3: External CPU clock (Switch 7). */
+    /*        50 MHz: Switch 7 = Off, Switch 8 = Off. */
+    /*        60 MHz: Switch 7 = On, Switch 8 = Off. */
+    /*        66 MHz: Switch 7 = Off, Switch 8 = On. */
+    /* Bit 2: 0 = On-board audio absent, 1 = On-board audio present. */
+    /* Bit 1: 0 = Soft-off capable power supply present, 1 = Soft-off capable power supply absent. */
+    /* Bit 0: 0 = Reserved. */
+    /* NOTE: A bit is read as 1 if switch is off, and as 0 if switch is on. */
+    if (cpu_busspeed <= 50000000)
+        gpio |= 0xffff10ff;
+    else if ((cpu_busspeed > 50000000) && (cpu_busspeed <= 60000000))
+        gpio |= 0xffff18ff;
+    else if (cpu_busspeed > 60000000)
+        gpio |= 0xffff00ff;
+
+    if (sound_card_current[0] == SOUND_INTERNAL)
+        gpio |= 0xffff04ff;
+
+    machine_set_gpio_default(gpio);
+}
+
+int
+machine_at_rubyusb_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear_combined2("roms/machines/rubyusb/1005DL0L.BIO",
+                                     "roms/machines/rubyusb/1005DL0L.BI1",
+                                     "roms/machines/rubyusb/1005DL0L.BI2",
+                                     "roms/machines/rubyusb/1005DL0L.BI3",
+                                     "roms/machines/rubyusb/1005DL0L.RCV",
+                                     /*NULL,*/
+                                     0x3a000, 128);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init_ex(model, 2);
+    machine_at_rubyusb_gpio_init();
+
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+    pci_register_slot(0x08, PCI_CARD_VIDEO,       4, 0, 0, 0);
+    pci_register_slot(0x11, PCI_CARD_NORMAL,      1, 2, 3, 4);
+    pci_register_slot(0x13, PCI_CARD_NORMAL,      2, 3, 4, 1);
+    pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
+    if (gfxcard[0] == VID_INTERNAL)
+        device_add(machine_get_vid_device(machine));
+
+    if (sound_card_current[0] == SOUND_INTERNAL)
+        machine_snd = device_add(machine_get_snd_device(machine));
+
+    device_add(&i430hx_device);
+    device_add(&piix3_device);
+    device_add_params(&pc87306_device, (void *) PCX730X_AMI);
+    device_add(&intel_flash_bxt_ami_device);
+
+    return ret;
+}
+
 static const device_config_t cu430hx_config[] = {
     // clang-format off
     {
@@ -1409,6 +1480,40 @@ machine_at_ym430tx_init(const machine_t *model)
     device_add_params(&w83977_device, (void *) (W83977TF | W83977_AMI | W83977_NO_NVR));
     device_add(&intel_flash_bxt_device);
     spd_register(SPD_TYPE_SDRAM, 0x3, 128);
+
+    return ret;
+}
+
+int
+machine_at_tx97xv_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/tx97xv/Bios.rom",
+                           0x000c0000, 262144, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init_ex(model, 2);
+
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 1, 2, 3, 4);
+    pci_register_slot(0x01, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4); /* PIIX4 */
+    pci_register_slot(0x09, PCI_CARD_NORMAL,      4, 1, 2, 3);
+    pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 1, 2);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 3, 4, 1);
+    pci_register_slot(0x0C, PCI_CARD_NORMAL,      1, 2, 3, 4);
+    pci_register_slot(0x0D, PCI_CARD_VIDEO,       1, 0, 0, 0);
+
+    device_add(&i430tx_device);
+    device_add(&piix4_device);
+    device_add_params(&pc87307_device, (void *) (PCX730X_AMI | PCX7307_PC87307 | PCX730X_02E));
+    device_add(&intel_flash_bxt_device);
+    spd_register(SPD_TYPE_SDRAM, 0x3, 128);
+
+    if ((gfxcard[0] == VID_INTERNAL) && machine_get_vid_device(machine))
+        device_add(machine_get_vid_device(machine));
 
     return ret;
 }

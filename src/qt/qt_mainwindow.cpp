@@ -164,6 +164,8 @@ keyb_filter(BMessage *message, BHandler **target, BMessageFilter *filter)
 static BMessageFilter *filter;
 #endif
 
+extern int      cpu_force_interpreter;
+
 extern void     qt_mouse_capture(int);
 extern "C" void qt_blit(int x, int y, int w, int h, int monitor_index);
 
@@ -278,8 +280,24 @@ MainWindow::MainWindow(QWidget *parent)
         vmname.truncate(vmname.size() - 1);
     this->setWindowTitle(QString("%1 - %2 %3").arg(vmname, EMU_NAME, EMU_VERSION_FULL));
 
+    connect(this, &MainWindow::forceInterpretationCompleted, this, [this]() {
+        const auto fi_icon      = cpu_force_interpreter ? QIcon(":/menuicons/qt/icons/recompiler.ico") :
+                                                          QIcon(":/menuicons/qt/icons/interpreter.ico");
+        const auto tooltip_text = cpu_force_interpreter ? QString(tr("Allow recompilation")) :
+                                                          QString(tr("Force interpretation"));
+        const auto menu_text    = cpu_force_interpreter ? QString(tr("&Allow recompilation")) :
+                                                          QString(tr("&Force interpretation"));
+
+        ui->actionForce_interpretation->setIcon(fi_icon);
+        ui->actionForce_interpretation->setToolTip(tooltip_text);
+        ui->actionForce_interpretation->setText(menu_text);
+        ui->actionForce_interpretation->setChecked(cpu_force_interpreter);
+        ui->actionForce_interpretation->setEnabled(cpu_use_dynarec);
+    });
+
     connect(this, &MainWindow::hardResetCompleted, this, [this]() {
         ui->actionMCA_devices->setVisible(machine_has_bus(machine, MACHINE_BUS_MCA));
+        ui_update_force_interpreter();
         num_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
         scroll_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
         caps_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
@@ -313,20 +331,7 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
         if (!hide_tool_bar)
-#ifdef _WIN32
             toolbar_label->setText(title);
-#else
-        {
-            /* get the percentage and mouse message, TODO: refactor ui_window_title() */
-            auto parts = title.split(" - ");
-            if (parts.size() >= 2) {
-                if (parts.size() < 5)
-                    toolbar_label->setText(parts[1]);
-                else
-                    toolbar_label->setText(QString("%1 - %2").arg(parts[1], parts.last()));
-            }
-        }
-#endif
     });
     connect(this, &MainWindow::getTitleForNonQtThread, this, &MainWindow::getTitle_, Qt::BlockingQueuedConnection);
 
@@ -775,10 +780,6 @@ MainWindow::MainWindow(QWidget *parent)
         ui->actionUpdate_mouse_every_CPU_frame->setChecked(true);
     }
 
-#ifdef Q_OS_MACOS
-    ui->actionCtrl_Alt_Del->setShortcutVisibleInContextMenu(true);
-    ui->actionTake_screenshot->setShortcutVisibleInContextMenu(true);
-#endif
     if (!vnc_enabled)
         video_setblit(qt_blit);
 
@@ -806,10 +807,6 @@ MainWindow::MainWindow(QWidget *parent)
             mtr_stop();
             mtr_shutdown();
         };
-#    ifdef Q_OS_MACOS
-        ui->actionBegin_trace->setShortcutVisibleInContextMenu(true);
-        ui->actionEnd_trace->setShortcutVisibleInContextMenu(true);
-#    endif
         static bool trace = false;
         connect(ui->actionBegin_trace, &QAction::triggered, this, [this] {
             if (trace)
@@ -982,6 +979,12 @@ MainWindow::closeEvent(QCloseEvent *event)
 }
 
 void
+ui_update_force_interpreter()
+{
+    emit main_window->forceInterpretationCompleted();
+}
+
+void
 MainWindow::updateShortcuts()
 {
     /*
@@ -999,6 +1002,7 @@ MainWindow::updateShortcuts()
     ui->actionHard_Reset->setShortcut(QKeySequence());
     ui->actionPause->setShortcut(QKeySequence());
     ui->actionMute_Unmute->setShortcut(QKeySequence());
+    ui->actionForce_interpretation->setShortcut(QKeySequence());
 
     int          accID;
     QKeySequence seq;
@@ -1030,6 +1034,10 @@ MainWindow::updateShortcuts()
     accID = FindAccelerator("mute");
     seq   = QKeySequence::fromString(acc_keys[accID].seq);
     ui->actionMute_Unmute->setShortcut(seq);
+
+    accID = FindAccelerator("force_interpretation");
+    seq   = QKeySequence::fromString(acc_keys[accID].seq);
+    ui->actionForce_interpretation->setShortcut(seq);
 }
 
 void
@@ -1070,7 +1078,7 @@ MainWindow::initRendererMonitorSlot(int monitor_index)
             this->renderers[monitor_index]->show();
         });
         secondaryRenderer->setWindowFlags(Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
-        secondaryRenderer->setWindowTitle(QObject::tr("86Box Monitor #") + QString::number(monitor_index + 1));
+        secondaryRenderer->setWindowTitle(QObject::tr("86Box Monitor #%1").arg(monitor_index + 1));
         secondaryRenderer->setContextMenuPolicy(Qt::PreventContextMenu);
 
         for (int i = 0; i < this->actions().size(); i++) {
@@ -1297,7 +1305,7 @@ MainWindow::processKeyboardInput(bool down, uint32_t keycode)
         case 0x10b:           /* Microsoft scroll up normal */
         case 0x180 ... 0x1ff: /* E0 break codes (including Microsoft scroll down normal) */
             /* This key uses a break code as make. Send it manually, only on press. */
-            if (down && (mouse_capture || !kbd_req_capture || video_fullscreen)) {
+            if (down && (mouse_capture || !kbd_req_capture || (video_fullscreen && !fullscreen_ui_visible))) {
                 if (keycode & 0x100)
                     keyboard_send(0xe0);
                 keyboard_send(keycode & 0xff);
@@ -1464,6 +1472,7 @@ MainWindow::on_actionFullscreen_triggered()
         if (!hide_tool_bar)
             ui->toolBar->show();
         video_fullscreen = 0;
+        fullscreen_ui_visible = 0;
         if (vid_resize != 1) {
             emit resizeContents(vid_resize == 2 ? fixed_size_x : monitors[0].mon_scrnsz_x, vid_resize == 2 ? fixed_size_y : monitors[0].mon_scrnsz_y);
         }
@@ -1558,6 +1567,10 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
                 || (QKeySequence) (ke->key() | ke->modifiers()) == FindAcceleratorSeq("mute")) {
                 ui->actionMute_Unmute->trigger();
             }
+            if ((QKeySequence) (ke->key() | (ke->modifiers() & ~Qt::KeypadModifier)) == FindAcceleratorSeq("toggle_ui_fullscreen")
+                || (QKeySequence) (ke->key() | ke->modifiers()) == FindAcceleratorSeq("toggle_ui_fullscreen")) {
+                toggleFullscreenUI();
+            }
 
             return true;
         }
@@ -1608,6 +1621,7 @@ MainWindow::refreshMediaMenu()
     status->refresh(ui->statusbar);
     ui->actionMCA_devices->setVisible(machine_has_bus(machine, MACHINE_BUS_MCA));
     ui->actionACPI_Shutdown->setEnabled(!!acpi_enabled);
+    ui_update_force_interpreter();
 
     num_label->setToolTip(QShortcut::tr("Num Lock"));
     num_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
@@ -1794,6 +1808,13 @@ void
 MainWindow::on_actionInverted_VGA_monitor_triggered()
 {
     video_toggle_option(ui->actionInverted_VGA_monitor, &invert_display);
+}
+
+void
+MainWindow::on_actionForce_interpretation_triggered()
+{
+    cpu_force_interpreter ^= 1;
+    ui_update_force_interpreter();
 }
 
 static void
@@ -2207,11 +2228,67 @@ MainWindow::on_actionUpdate_status_bar_icons_triggered()
 }
 
 void
+MainWindow::toggleFullscreenUI()
+{
+    if (video_fullscreen == 0)
+        return;
+
+    fullscreen_ui_visible ^= 1;
+
+    if (fullscreen_ui_visible) {
+        // UI is being shown - save mouse capture state and release if captured
+        mouse_was_captured = (mouse_capture != 0);
+        if (mouse_was_captured) {
+            plat_mouse_capture(0);
+        }
+    } else {
+        // UI is being hidden - restore previous mouse capture state
+        if (mouse_was_captured) {
+            plat_mouse_capture(1);
+        }
+    }
+
+    ui->menubar->setVisible(fullscreen_ui_visible);
+    ui->statusbar->setVisible(fullscreen_ui_visible && !hide_status_bar);
+    ui->toolBar->setVisible(fullscreen_ui_visible && !hide_tool_bar);
+}
+
+void
 MainWindow::on_actionTake_screenshot_triggered()
 {
     startblit();
     for (auto &monitor : monitors)
         ++monitor.mon_screenshots;
+    endblit();
+    device_force_redraw();
+}
+
+void
+MainWindow::on_actionTake_raw_screenshot_triggered()
+{
+    startblit();
+    for (auto &monitor : monitors)
+        ++monitor.mon_screenshots_raw;
+    endblit();
+    device_force_redraw();
+}
+
+void
+MainWindow::on_actionCopy_screenshot_triggered()
+{
+    startblit();
+    for (auto &monitor : monitors)
+        ++monitor.mon_screenshots_clipboard;
+    endblit();
+    device_force_redraw();
+}
+
+void
+MainWindow::on_actionCopy_raw_screenshot_triggered()
+{
+    startblit();
+    for (auto &monitor : monitors)
+        ++monitor.mon_screenshots_raw_clipboard;
     endblit();
     device_force_redraw();
 }

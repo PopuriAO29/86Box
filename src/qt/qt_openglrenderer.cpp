@@ -26,6 +26,7 @@ extern MainWindow *main_window;
 #include <QCoreApplication>
 #include <QMessageBox>
 #include <QWindow>
+#include <QClipboard>
 #include <QPainter>
 #include <QWidget>
 #include <QEvent>
@@ -873,12 +874,16 @@ OpenGLRenderer::initialize()
 
         glw.initializeOpenGLFunctions();
 
+        glw.glClearColor(0, 0, 0, 1);
+
+        glw.glClear(GL_COLOR_BUFFER_BIT);
+
         ogl3_log("OpenGL information: [%s] %s (%s)\n", glw.glGetString(GL_VENDOR), glw.glGetString(GL_RENDERER), glw.glGetString(GL_VERSION));
         gl_version[0] = gl_version[1] = -1;
         glw.glGetIntegerv(GL_MAJOR_VERSION, &gl_version[0]);
         glw.glGetIntegerv(GL_MINOR_VERSION, &gl_version[1]);
         if (gl_version[0] < 3) {
-            throw opengl_init_error(tr("OpenGL version 3.0 or greater is required. Current GLSL version is %1.%2").arg(gl_version[0]).arg(gl_version[1]));
+            throw opengl_init_error(tr("OpenGL version 3.0 or greater is required. Current version is %1.%2").arg(gl_version[0]).arg(gl_version[1]));
         }
         ogl3_log("Using OpenGL %s\n", glw.glGetString(GL_VERSION));
         ogl3_log("Using Shading Language %s\n", glw.glGetString(GL_SHADING_LANGUAGE_VERSION));
@@ -905,12 +910,12 @@ OpenGLRenderer::initialize()
         scene_texture.data            = NULL;
         scene_texture.width           = 2048;
         scene_texture.height          = 2048;
-        scene_texture.internal_format = GL_RGB8;
-        scene_texture.format          = GL_BGR;
+        scene_texture.internal_format = GL_RGBA8;
+        scene_texture.format          = GL_RGBA;
         scene_texture.type            = GL_UNSIGNED_INT_8_8_8_8_REV;
         scene_texture.wrap_mode       = GL_CLAMP_TO_BORDER;
         scene_texture.min_filter = scene_texture.mag_filter = video_filter_method ? GL_LINEAR : GL_NEAREST;
-        scene_texture.mipmap                                = 0;
+        scene_texture.mipmap          = 0;
 
         create_texture(&scene_texture);
 
@@ -1104,10 +1109,6 @@ OpenGLRenderer::initialize()
 
         emit initialized();
 
-        glw.glClearColor(0, 0, 0, 1);
-
-        glw.glClear(GL_COLOR_BUFFER_BIT);
-
         context->swapBuffers(this);
     } catch (const opengl_init_error &e) {
         /* Mark all buffers as in use */
@@ -1147,6 +1148,8 @@ OpenGLRenderer::finalize()
     isFinalized = true;
 }
 
+extern void take_screenshot_clipboard_monitor(int sx, int sy, int sw, int sh, int i);
+
 void
 OpenGLRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 {
@@ -1184,6 +1187,10 @@ OpenGLRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 
     if (video_framerate == -1)
         render();
+
+    if (monitors[r_monitor_index].mon_screenshots_raw_clipboard) {
+        take_screenshot_clipboard_monitor(x, y, w, h, r_monitor_index);
+    }
 }
 
 std::vector<std::tuple<uint8_t *, std::atomic_flag *>>
@@ -1723,6 +1730,20 @@ OpenGLRenderer::render()
         QImage image((uchar*)rgb, width, height, width * 3, QImage::Format_RGB888);
         image.mirrored(false, true).save(path, "png");
         monitors[r_monitor_index].mon_screenshots--;
+        free(rgb);
+    }
+    if (monitors[r_monitor_index].mon_screenshots_clipboard) {
+        int  width = destination.width(), height = destination.height();
+
+        unsigned char *rgb = (unsigned char *) calloc(1, (size_t) width * height * 4);
+
+        glw.glFinish();
+        glw.glReadPixels(window_rect.x, window_rect.y, width, height, GL_RGB, GL_UNSIGNED_BYTE, rgb);
+
+        QImage image((uchar*)rgb, width, height, width * 3, QImage::Format_RGB888);
+        QClipboard *clipboard = QApplication::clipboard();
+        clipboard->setImage(image.mirrored(false, true), QClipboard::Clipboard);
+        monitors[r_monitor_index].mon_screenshots_clipboard--;
         free(rgb);
     }
 

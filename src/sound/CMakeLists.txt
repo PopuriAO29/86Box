@@ -31,6 +31,7 @@ add_library(snd OBJECT
     snd_ps1.c
     snd_adlib.c
     snd_adlibgold.c
+    snd_ad1816.c
     snd_ad1848.c
     snd_audiopci.c
     snd_azt2316a.c
@@ -191,6 +192,10 @@ target_link_libraries(86Box ymfm)
 if(OPL4ML)
     target_compile_definitions(snd PRIVATE USE_OPL4ML)
     target_sources(snd PRIVATE midi_opl4.c midi_opl4_yrw801.c)
+endif()
+
+if(SOFTMODEM)
+    target_compile_definitions(snd PRIVATE USE_SOFTMODEM)
 endif()
  
 find_package(PkgConfig)

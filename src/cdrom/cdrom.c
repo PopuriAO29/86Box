@@ -1469,8 +1469,10 @@ cdrom_seek(cdrom_t *dev, const uint32_t pos, const uint8_t vendor_type)
             break;
     }
 
-    dev->seek_pos = real_pos;
     cdrom_stop(dev);
+
+    dev->seek_pos      = real_pos;
+    dev->cached_sector = -1;
 }
 
 int
@@ -3220,6 +3222,22 @@ cdrom_is_empty(const uint8_t id)
         ret = 1;
 
     return ret;
+}
+
+int
+cdrom_is_playing(const uint8_t id)
+{
+    const cdrom_t *dev = &cdrom[id];
+
+    return (dev->cd_status == CD_STATUS_PLAYING);
+}
+
+int
+cdrom_is_paused(const uint8_t id)
+{
+    const cdrom_t *dev = &cdrom[id];
+
+    return (dev->cd_status == CD_STATUS_PAUSED);
 }
 
 /* The mechanics of ejecting a CD-ROM from a drive. */

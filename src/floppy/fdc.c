@@ -784,6 +784,9 @@ fdc_sis(fdc_t *fdc)
 static void
 fdc_soft_reset(fdc_t *fdc)
 {
+    /* Reset boot status to POST on controller soft reset */
+    fdd_boot_status_reset();
+
     if (fdc->power_down) {
         timer_set_delay_u64(&fdc->timer, 1000 * TIMER_USEC);
         fdc->interrupt = -5;
@@ -1139,7 +1142,7 @@ fdc_write(uint16_t addr, uint8_t val, void *priv)
                                     timer_set_delay_u64(&fdc->timer, 1000 * TIMER_USEC);
                                 else
                                     timer_set_delay_u64(&fdc->timer, 256 * TIMER_USEC);
-                                break;
+                                break;                                
                             default:
                                 timer_set_delay_u64(&fdc->timer, 256 * TIMER_USEC);
                                 break;
@@ -1312,14 +1315,8 @@ fdc_write(uint16_t addr, uint8_t val, void *priv)
                                         fdc->step = 1;
                                     } else {
                                         fdc->st0 = 0x20 | (fdc->params[0] & 3);
-                                        if (fdc->flags & FDC_FLAG_PCJR) {
-                                            fdc->fintr     = 1;
-                                            fdc->interrupt = -4;
-                                        } else {
-                                            timer_disable(&fdc->timer);
-                                            fdc->interrupt = -3;
-                                            fdc_callback(fdc);
-                                        }
+                                        fdc->fintr     = 1;
+                                        fdc->interrupt = -4;
                                         break;
                                     }
                                 } else {
@@ -1327,14 +1324,9 @@ fdc_write(uint16_t addr, uint8_t val, void *priv)
                                     if ((fdc->params[1] - fdc->pcn[fdc->params[0] & 3]) == 0) {
                                         fdc_log("Failed seek\n");
                                         fdc->st0 = 0x20 | (fdc->params[0] & 3);
-                                        if (fdc->flags & FDC_FLAG_PCJR) {
-                                            fdc->fintr     = 1;
-                                            fdc->interrupt = -4;
-                                        } else {
-                                            timer_disable(&fdc->timer);
-                                            fdc->interrupt = -3;
-                                            fdc_callback(fdc);
-                                        }
+                                        /* Always use the PCjr code, so both 386BSD and 1B/V3 work. */
+                                        fdc->fintr     = 1;
+                                        fdc->interrupt = -4;
                                         break;
                                     }
                                     if (fdc->params[1] > fdc->pcn[fdc->params[0] & 3])
@@ -1890,13 +1882,17 @@ fdc_callback(void *priv)
             fdc->st0                     = 0x20 | (fdc->params[0] & 3);
             if (!fdd_track0(drive_num))
                 fdc->st0 |= 0x50;
-            if (fdc->flags & FDC_FLAG_PCJR) {
-                fdc->fintr     = 1;
-                fdc->interrupt = -4;
-            } else
-                fdc->interrupt = -3;
-            timer_set_delay_u64(&fdc->timer, 2048 * TIMER_USEC);
             fdc->stat = 0x10 | (1 << fdc->rw_drive);
+            if (fdd_get_turbo(drive_num)) {
+                if (fdc->flags & FDC_FLAG_PCJR) {
+                    fdc->fintr     = 1;
+                    fdc->interrupt = -4;
+                } else {
+                    fdc->interrupt = -3;
+                }
+                timer_set_delay_u64(&fdc->timer, 2048 * TIMER_USEC);
+            }
+            /* Interrupts and callbacks in the fdd callback function (fdc_seek_complete_interrupt) */
             return;
         case 0x0d: /*Format track*/
             if (fdc->format_state == 1) {
@@ -2413,6 +2409,9 @@ fdc_reset(void *priv)
     uint8_t default_rwc;
 
     fdc_t *fdc = (fdc_t *) priv;
+
+    /* Reset boot status to POST on controller reset */
+    fdd_boot_status_reset();
 
     default_rwc = (fdc->flags & FDC_FLAG_START_RWC_1) ? 1 : 0;
 

@@ -425,7 +425,7 @@ static const device_config_t bx6_config[] = {
         .bios           = {
             {
                 .name          = "Award Modular BIOS v4.51PG - Revision EG",
-                .internal_name = "bx6_eg",
+                .internal_name = "bx6",
                 .bios_type     = BIOS_NORMAL,
                 .files_no      = 1,
                 .local         = 0,
@@ -433,8 +433,35 @@ static const device_config_t bx6_config[] = {
                 .files         = { "roms/machines/bx6/BX6_EG.BIN", "" }
             },
             {
+                .name          = "Award Modular BIOS v4.51PG - Revision CW",
+                .internal_name = "bx6_CW",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/bx6/BX6_CW.bin", "" }
+            },
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision GQ",
+                .internal_name = "bx6_GQ",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/bx6/BX6_GQ.bin", "" }
+            },
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision JL",
+                .internal_name = "bx6_JL",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/bx6/BX6_JL.bin", "" }
+            },
+            {
                 .name          = "Award Modular BIOS v4.51PG - Revision QS",
-                .internal_name = "bx6",
+                .internal_name = "bx6_qs",
                 .bios_type     = BIOS_NORMAL,
                 .files_no      = 1,
                 .local         = 0,
@@ -594,7 +621,7 @@ static const device_config_t ax6bc_config[] = {
                 .files         = { "roms/machines/ax6bc/ax6bc110.bin", "" }
             },
             {
-                .name          = "RM Accelerator 350P2XB/450P3XB (BIOS R2.20)",
+                .name          = "Award Modular BIOS v4.60PGMA - Revision R2.20 (RM Accelerator 350P2XB/450P3XB)",
                 .internal_name = "ax6bc_rm",
                 .bios_type     = BIOS_NORMAL,
                 .files_no      = 1,
@@ -603,7 +630,7 @@ static const device_config_t ax6bc_config[] = {
                 .files         = { "roms/machines/ax6bc/ax6bc220.bin", "" }
             },
             {
-                .name          = "Award Modular BIOS v4.60PGM - Revision R2.59",
+                .name          = "Award Modular BIOS v4.60PGMA - Revision R2.59",
                 .internal_name = "ax6bc",
                 .bios_type     = BIOS_NORMAL,
                 .files_no      = 1,
@@ -887,6 +914,15 @@ static const device_config_t ms6147_config[] = {
         .selection      = { { 0 } },
         .bios           = {
             {
+                .name          = "Award Modular BIOS v4.51PG - Revision 1.2 (Fujitsu ErgoPro e368)",
+                .internal_name = "ergoproe368",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/ms6147/W647F412.BIN", "" }
+            },
+            {
                 .name          = "Award Modular BIOS v4.51PG - Revision 1.8",
                 .internal_name = "ms6147",
                 .bios_type     = BIOS_NORMAL,
@@ -913,7 +949,7 @@ static const device_config_t ms6147_config[] = {
 
 const device_t ms6147_device = {
     .name          = "MSI MS-6147",
-    .internal_name = "ms6147_device",
+    .internal_name = "ms6147",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -1048,8 +1084,8 @@ machine_at_p6sba_init(const machine_t *model)
     device_add_params(&w83977_device, (void *) (W83977TF | W83977_AMI | W83977_NO_NVR));
     device_add(&intel_flash_bxt_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 256);
-    device_add(&w83781d_device);    /* fans: CPU1, CPU2, Thermal Control; temperatures: unused, CPU1, CPU2 */
-    hwm_values.voltages[1] = 3300; /* Seems to be the I/O voltage, reported as "CPUi/o" in the Leadtek BIOS and "CPU2" in the SuperMicro BIOS */
+    device_add(&w83781d_device);   /* fans: CPU1, CPU2, Thermal Control; temperatures: unused, CPU1, CPU2 */
+    hwm_values.voltages[1] = 1500; /* potentially Vtt; Leadtek BIOS calls it CPUi/o; Supermicro BIOS calls it CPU2 and reads a voltage this low as N/A */
 
     return ret;
 }
